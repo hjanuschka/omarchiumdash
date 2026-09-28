@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "hjanuschka.omarchiumdash",
+  "name": "Omarchiumdash",
+  "version": "0.1.0",
+  "author": "Helmut Januschka",
+  "license": "MIT",
+  "description": "Chrome channel milestones, ChromiumDash branch/stable schedule, and Gerrit CL status in the bar",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Chromium Branches",
+    "description": "Stable/Beta/Dev/Canary milestones with branch countdowns",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "platform": "linux",
+      "refreshMinutes": 60
+    },
+    "schema": [
+      {
+        "key": "platform",
+        "type": "enum",
+        "label": "Platform",
+        "options": ["linux", "mac", "win64", "android"],
+        "defaultValue": "linux",
+        "description": "Platform whose channel versions are shown (versionhistory.googleapis.com)."
+      },
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Refresh interval (minutes)",
+        "min": 5,
+        "max": 1440,
+        "step": 5,
+        "defaultValue": 60
+      }
+    ]
+  }
+}
