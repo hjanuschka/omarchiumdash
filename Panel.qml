@@ -13,6 +13,7 @@ Panel {
   readonly property string platform: String(setting("platform", "linux"))
   readonly property int refreshMinutes: Math.max(5, parseInt(setting("refreshMinutes", 60), 10) || 60)
   readonly property string statePath: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omarchiumdash.json"
+  readonly property string scriptPath: Qt.resolvedUrl("scripts/io.sh").toString().replace(/^file:\/\//, "")
 
   property var channels: []
   property bool loading: false
@@ -40,52 +41,40 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  // ---- Networking
+  // ---- Networking and state I/O
 
-  // Ceilings that bound what a single response can allocate or tie up in the
-  // long-lived shell process. The JSON endpoints we hit return well under 1 MiB.
-  readonly property int maxResponseBytes: 4 * 1024 * 1024
-  readonly property int requestTimeoutMs: 20000
+  // Quickshell cannot bound XMLHttpRequest buffering or open FileView with
+  // O_NOFOLLOW, so scripts/io.sh runs every network and state-file operation
+  // behind hard byte, time, and descriptor-bound symlink guards.
+  function runIO(args, input, onDone) {
+    var proc = ioComponent.createObject(root, { args: args, input: input })
+    if (!proc) {
+      if (onDone) onDone(-1, "")
+      return
+    }
+    proc.onDone = onDone
+    proc.running = true
+  }
 
   function request(url, done) {
-    var xhr = new XMLHttpRequest()
-    var settled = false
-    function settle(err, data) {
-      if (settled) return
-      settled = true
-      if (err) xhr.abort()
-      done(err, data)
-    }
-    xhr.onreadystatechange = function() {
-      if (settled) return
-      if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
-        var declared = parseInt(xhr.getResponseHeader("Content-Length"), 10)
-        if (declared > root.maxResponseBytes) settle("Response too large", null)
-        return
-      }
-      if (xhr.readyState === XMLHttpRequest.LOADING) {
-        if (xhr.responseText.length > root.maxResponseBytes) settle("Response too large", null)
-        return
-      }
-      if (xhr.readyState !== XMLHttpRequest.DONE) return
-      if (xhr.status < 200 || xhr.status >= 300) {
-        settle(xhr.status === 0 ? "Network error" : "HTTP " + xhr.status, null)
-        return
-      }
-      if (xhr.responseText.length > root.maxResponseBytes) {
-        settle("Response too large", null)
+    runIO(["fetch", url], "", function(code, out) {
+      if (code !== 0) {
+        done(code === 2 ? "Blocked host" : "Fetch failed", null)
         return
       }
       try {
-        settle("", JSON.parse(Model.stripXssi(xhr.responseText)))
+        done("", JSON.parse(Model.stripXssi(out)))
       } catch (e) {
-        settle("Bad response", null)
+        done("Bad response", null)
       }
-    }
-    xhr.timeout = root.requestTimeoutMs
-    xhr.ontimeout = function() { settle("Timed out", null) }
-    xhr.open("GET", url)
-    xhr.send()
+    })
+  }
+
+  function loadState() {
+    runIO(["read-state", root.statePath], "", function(code, out) {
+      root.persisted = Model.parseState(out)
+      root.refreshBookmarks()
+    })
   }
 
   function fetchSchedule(milestone, done) {
@@ -186,7 +175,7 @@ Panel {
 
   function savePersisted(next) {
     persisted = next
-    stateFile.setText(JSON.stringify(next, null, 2) + "\n")
+    runIO(["write-state", root.statePath], JSON.stringify(next, null, 2) + "\n", null)
   }
 
   function toggleChannel(name) {
@@ -243,18 +232,37 @@ Panel {
     }).join("\n")
   }
 
-  FileView {
-    id: stateFile
-    path: root.statePath
-    watchChanges: true
-    atomicWrites: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: {
-      root.persisted = Model.parseState(text())
-      root.refreshBookmarks()
+  Component {
+    id: ioComponent
+
+    Process {
+      id: proc
+      property var args: []
+      property string input: ""
+      property var onDone: null
+      property string collected: ""
+      command: ["sh", root.scriptPath].concat(proc.args)
+      stdinEnabled: proc.input !== ""
+
+      stdout: StdioCollector {
+        id: collector
+        onStreamFinished: proc.collected = collector.text
+      }
+
+      onStarted: {
+        if (proc.input !== "") {
+          proc.write(proc.input)
+          proc.stdinEnabled = false
+        }
+      }
+
+      onExited: function(code, status) {
+        var cb = proc.onDone
+        var out = proc.collected
+        proc.destroy()
+        if (cb) cb(code, out)
+      }
     }
-    onLoadFailed: root.persisted = Model.defaultState()
   }
 
   Timer {
@@ -274,7 +282,10 @@ Panel {
 
   onPlatformChanged: refresh()
   onOpenedChanged: if (opened) now = new Date()
-  Component.onCompleted: refresh()
+  Component.onCompleted: {
+    loadState()
+    refresh()
+  }
 
   // ---- Bar pill
 

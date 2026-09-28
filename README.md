@@ -113,8 +113,15 @@ the node tests. `Panel.qml` handles the UI and networking.
 
 ## Dependencies
 
-Omarchy (Quickshell shell) and `xdg-open` for opening links. You don't need
-any extra packages.
+Omarchy (Quickshell shell), `curl` for network requests, and `xdg-open` for
+opening links. `curl` and the coreutils used by `scripts/io.sh` ship with every
+Omarchy install, so you don't need to add anything.
+
+All network and state-file I/O runs through `scripts/io.sh` rather than
+Quickshell's `XMLHttpRequest`/`FileView`, which cannot bound response size or
+open files without following symlinks. The helper enforces HTTPS-only,
+host-allowlisted requests with hard byte and time ceilings, and reads/writes the
+state file with descriptor-bound no-follow checks and an atomic temp-and-rename.
 
 ## License
 
