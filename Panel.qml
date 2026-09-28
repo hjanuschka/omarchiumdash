@@ -42,20 +42,48 @@ Panel {
 
   // ---- Networking
 
+  // Ceilings that bound what a single response can allocate or tie up in the
+  // long-lived shell process. The JSON endpoints we hit return well under 1 MiB.
+  readonly property int maxResponseBytes: 4 * 1024 * 1024
+  readonly property int requestTimeoutMs: 20000
+
   function request(url, done) {
     var xhr = new XMLHttpRequest()
+    var settled = false
+    function settle(err, data) {
+      if (settled) return
+      settled = true
+      if (err) xhr.abort()
+      done(err, data)
+    }
     xhr.onreadystatechange = function() {
+      if (settled) return
+      if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
+        var declared = parseInt(xhr.getResponseHeader("Content-Length"), 10)
+        if (declared > root.maxResponseBytes) settle("Response too large", null)
+        return
+      }
+      if (xhr.readyState === XMLHttpRequest.LOADING) {
+        if (xhr.responseText.length > root.maxResponseBytes) settle("Response too large", null)
+        return
+      }
       if (xhr.readyState !== XMLHttpRequest.DONE) return
       if (xhr.status < 200 || xhr.status >= 300) {
-        done(xhr.status === 0 ? "Network error" : "HTTP " + xhr.status, null)
+        settle(xhr.status === 0 ? "Network error" : "HTTP " + xhr.status, null)
+        return
+      }
+      if (xhr.responseText.length > root.maxResponseBytes) {
+        settle("Response too large", null)
         return
       }
       try {
-        done("", JSON.parse(Model.stripXssi(xhr.responseText)))
+        settle("", JSON.parse(Model.stripXssi(xhr.responseText)))
       } catch (e) {
-        done("Bad response", null)
+        settle("Bad response", null)
       }
     }
+    xhr.timeout = root.requestTimeoutMs
+    xhr.ontimeout = function() { settle("Timed out", null) }
     xhr.open("GET", url)
     xhr.send()
   }

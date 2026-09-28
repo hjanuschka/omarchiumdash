@@ -375,10 +375,16 @@ function defaultState() {
   return { version: 1, visibleChannels: CHANNELS.slice(), bookmarks: [] }
 }
 
+// Caps the bytes we parse from the state file so a swapped-in oversized file
+// (e.g. via a symlink) cannot force an unbounded allocation on load.
+var MAX_STATE_BYTES = 256 * 1024;
+
 function parseState(text) {
   var state = defaultState()
+  var raw = String(text || "")
+  if (raw.length > MAX_STATE_BYTES) return state
   try {
-    var parsed = JSON.parse(text)
+    var parsed = JSON.parse(raw)
     if (parsed && Array.isArray(parsed.visibleChannels))
       state.visibleChannels = parsed.visibleChannels.filter(function(c) { return CHANNELS.indexOf(c) >= 0 })
     if (parsed && Array.isArray(parsed.bookmarks))

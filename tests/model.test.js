@@ -108,6 +108,8 @@ test("state parsing and mutation", () => {
   assert.deepStrictEqual(state.visibleChannels, ["dev"])
   assert.strictEqual(state.bookmarks.length, 1)
   assert.deepStrictEqual(Model.parseState("garbage").visibleChannels, Model.CHANNELS)
+  const oversized = '{"visibleChannels":["dev"],"bookmarks":[],"pad":"' + "x".repeat(300 * 1024) + '"}'
+  assert.deepStrictEqual(Model.parseState(oversized).visibleChannels, Model.CHANNELS)
   assert.deepStrictEqual(Model.toggleChannel(["dev"], "stable"), ["stable", "dev"])
   assert.deepStrictEqual(Model.toggleChannel(["stable", "dev"], "dev"), ["stable"])
   const added = Model.addBookmark(state.bookmarks, { kind: "cl", id: "1" })
